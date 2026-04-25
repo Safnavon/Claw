@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claw Daily Digest 🦞</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #21253a;
+      --border: #2a2f45;
+      --accent: #6c8aff;
+      --accent2: #a78bfa;
+      --text: #e2e8f0;
+      --muted: #8892a4;
+      --ai: #34d399;
+      --tech: #60a5fa;
+      --gaming: #f472b6;
+      --astro: #fb923c;
+      --product: #facc15;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #1a1d27 0%, #0f1117 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 24px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+    header h1 { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
+    header .sub { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
+    header .emoji { font-size: 2rem; }
+    .weather-badge {
+      margin-left: auto;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 8px 16px;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .refresh-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+    .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 16px 32px 0;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .tab {
+      padding: 10px 18px;
+      border-radius: 8px 8px 0 0;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--muted);
+      border: 1px solid transparent;
+      border-bottom: none;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active {
+      background: var(--surface);
+      border-color: var(--border);
+      border-bottom: 1px solid var(--surface);
+      color: var(--text);
+      margin-bottom: -1px;
+    }
+
+    main { padding: 32px; max-width: 1400px; margin: 0 auto; }
+
+    .section { display: none; }
+    .section.active { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
+    .section.all-view { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      display: flex;
+      flex-direction: column;
+    }
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: var(--accent);
+      box-shadow: 0 8px 32px rgba(108, 138, 255, 0.12);
+    }
+    .card a { text-decoration: none; color: inherit; display: flex; flex-direction: column; height: 100%; }
+
+    .card-img {
+      width: 100%;
+      height: 180px;
+      object-fit: cover;
+      background: var(--surface2);
+    }
+    .card-img-placeholder {
+      width: 100%;
+      height: 180px;
+      background: var(--surface2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3rem;
+    }
+    .card-body { padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+    .card-cat {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 4px 10px;
+      border-radius: 999px;
+      width: fit-content;
+    }
+    .card-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      line-height: 1.45;
+      color: var(--text);
+    }
+    .card-source {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .card-source .dot { width: 4px; height: 4px; background: var(--muted); border-radius: 50%; }
+
+    .cat-ai    { background: rgba(52,211,153,0.15); color: var(--ai); }
+    .cat-tech  { background: rgba(96,165,250,0.15); color: var(--tech); }
+    .cat-gaming{ background: rgba(244,114,182,0.15); color: var(--gaming); }
+    .cat-astro { background: rgba(251,146,60,0.15); color: var(--astro); }
+    .cat-product{ background: rgba(250,204,21,0.15); color: var(--product); }
+
+    .loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 80px 0;
+      grid-column: 1/-1;
+      color: var(--muted);
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error {
+      color: #f87171;
+      font-size: 0.85rem;
+      padding: 12px;
+      background: rgba(248,113,113,0.1);
+      border-radius: 8px;
+      grid-column: 1/-1;
+    }
+
+    .timestamp {
+      color: var(--muted);
+      font-size: 0.75rem;
+      padding: 16px 32px;
+      text-align: center;
+    }
+
+    @media (max-width: 600px) {
+      header { padding: 16px; flex-wrap: wrap; }
+      .weather-badge { margin-left: 0; }
+      .tabs { padding: 12px 16px 0; }
+      main { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="emoji">🦞</span>
+  <div>
+    <h1>Claw Daily Digest</h1>
+    <div class="sub" id="date-line">Loading...</div>
+  </div>
+  <div class="weather-badge" id="weather">⏳ Weather...</div>
+  <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
+</header>
+
+<div class="tabs">
+  <div class="tab active" data-section="all">📰 All</div>
+  <div class="tab" data-section="ai">🤖 AI / LLMs</div>
+  <div class="tab" data-section="tech">💻 Tech</div>
+  <div class="tab" data-section="gaming">🎮 Gaming</div>
+  <div class="tab" data-section="astro">🔭 Astrophysics</div>
+  <div class="tab" data-section="product">💡 Product & Startups</div>
+</div>
+
+<main>
+  <div class="section active all-view" id="section-all"></div>
+  <div class="section" id="section-ai"></div>
+  <div class="section" id="section-tech"></div>
+  <div class="section" id="section-gaming"></div>
+  <div class="section" id="section-astro"></div>
+  <div class="section" id="section-product"></div>
+</main>
+<div class="timestamp" id="timestamp"></div>
+
+<script>
+const FEEDS = [
+  {
+    id: 'ai',
+    label: 'AI / LLMs',
+    emoji: '🤖',
+    cls: 'cat-ai',
+    url: 'https://medium.com/feed/tag/artificial-intelligence',
+    max: 6,
+    source: 'Medium'
+  },
+  {
+    id: 'tech',
+    label: 'Tech & Software',
+    emoji: '💻',
+    cls: 'cat-tech',
+    url: 'https://news.ycombinator.com/rss',
+    max: 6,
+    source: 'Hacker News'
+  },
+  {
+    id: 'gaming',
+    label: 'Gaming',
+    emoji: '🎮',
+    cls: 'cat-gaming',
+    url: 'https://feeds.arstechnica.com/arstechnica/gaming',
+    max: 6,
+    source: 'Ars Technica'
+  },
+  {
+    id: 'astro',
+    label: 'Astrophysics',
+    emoji: '🔭',
+    cls: 'cat-astro',
+    url: 'https://feeds.arstechnica.com/arstechnica/science',
+    max: 6,
+    source: 'Ars Technica'
+  },
+  {
+    id: 'product',
+    label: 'Product & Startups',
+    emoji: '💡',
+    cls: 'cat-product',
+    url: 'https://techcrunch.com/feed/',
+    max: 6,
+    source: 'TechCrunch'
+  }
+];
+
+const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
+
+function setDate() {
+  const now = new Date();
+  document.getElementById('date-line').textContent =
+    now.toLocaleDateString('en-IL', { weekday:'long', year:'numeric', month:'long', day:'numeric', timeZone:'Asia/Jerusalem' });
+}
+
+async function fetchWeather() {
+  try {
+    const r = await fetch('https://wttr.in/Tel+Aviv?format=%c+%t,+%w+wind,+%p+rain');
+    const t = await r.text();
+    document.getElementById('weather').textContent = '📍 Tel Aviv  ' + t.trim();
+  } catch { document.getElementById('weather').textContent = '🌡 Weather unavailable'; }
+}
+
+function cardHTML(item, feed) {
+  const img = item.thumbnail && item.thumbnail.startsWith('http') ? item.thumbnail : null;
+  const imgEl = img
+    ? `<img class="card-img" src="${img}" alt="" loading="lazy" onerror="this.style.display='none'">`
+    : `<div class="card-img-placeholder">${feed.emoji}</div>`;
+  const title = item.title.replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"');
+  const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleDateString('en-IL',{month:'short',day:'numeric'}) : '';
+  return `
+    <div class="card">
+      <a href="${item.link}" target="_blank" rel="noopener">
+        ${imgEl}
+        <div class="card-body">
+          <span class="card-cat ${feed.cls}">${feed.emoji} ${feed.label}</span>
+          <div class="card-title">${title}</div>
+          <div class="card-source">
+            <span>${feed.source}</span>
+            ${pubDate ? `<span class="dot"></span><span>${pubDate}</span>` : ''}
+          </div>
+        </div>
+      </a>
+    </div>`;
+}
+
+function showLoading(sectionId) {
+  document.getElementById('section-' + sectionId).innerHTML =
+    `<div class="loading"><div class="spinner"></div><span>Fetching ${sectionId} news…</span></div>`;
+}
+
+async function loadFeed(feed) {
+  showLoading(feed.id);
+  try {
+    const r = await fetch(RSS2JSON + encodeURIComponent(feed.url) + '&count=' + feed.max);
+    const data = await r.json();
+    if (!data.items || !data.items.length) throw new Error('No items');
+    const cards = data.items.slice(0, feed.max).map(i => cardHTML(i, feed)).join('');
+    document.getElementById('section-' + feed.id).innerHTML = cards;
+    return { id: feed.id, cards };
+  } catch(e) {
+    document.getElementById('section-' + feed.id).innerHTML =
+      `<div class="error">⚠️ Failed to load ${feed.label}: ${e.message}</div>`;
+    return { id: feed.id, cards: `<div class="error">⚠️ ${feed.label} unavailable</div>` };
+  }
+}
+
+async function loadAll() {
+  document.getElementById('section-all').innerHTML =
+    `<div class="loading"><div class="spinner"></div><span>Loading all feeds…</span></div>`;
+
+  const results = await Promise.all(FEEDS.map(loadFeed));
+
+  // Build "All" view — 2 cards per category
+  let allHTML = '';
+  for (const feed of FEEDS) {
+    const sec = document.getElementById('section-' + feed.id);
+    const cards = sec.querySelectorAll('.card');
+    cards.forEach((c, i) => { if (i < 3) allHTML += c.outerHTML; });
+  }
+  document.getElementById('section-all').innerHTML = allHTML || '<div class="error">No content loaded</div>';
+
+  document.getElementById('timestamp').textContent =
+    'Last updated: ' + new Date().toLocaleTimeString('en-IL', { timeZone: 'Asia/Jerusalem' }) + ' (Israel time)';
+}
+
+// Tab switching
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('section-' + tab.dataset.section).classList.add('active');
+  });
+});
+
+setDate();
+fetchWeather();
+loadAll();
+</script>
+</body>
+</html>
