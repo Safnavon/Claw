@@ -1,0 +1,78 @@
+name: Fetch News
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 3am UTC = 6am Israel time
+  workflow_dispatch:        # manual trigger
+  push:
+    branches: [gh-pages]
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+
+      - name: Fetch RSS feeds
+        run: |
+          python3 << 'PYEOF'
+          import urllib.request, re, html, json, time
+
+          def fetch(url):
+              try:
+                  req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                  with urllib.request.urlopen(req, timeout=15) as r:
+                      return r.read().decode('utf-8', errors='ignore')
+              except Exception as e:
+                  print(f"Error fetching {url}: {e}")
+                  return ""
+
+          def parse_items(content, max=8):
+              items = re.findall(r'<item>(.*?)</item>', content, re.DOTALL)
+              results = []
+              for item in items[:max]:
+                  title = re.search(r'<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>', item)
+                  link = re.search(r'<link>(.*?)</link>', item) or re.search(r'<guid[^>]*>(https?://[^<]+)</guid>', item)
+                  img = (re.search(r'<media:content[^>]+url=["\']([^"\']+)["\']', item) or
+                         re.search(r'<media:thumbnail[^>]+url=["\']([^"\']+)["\']', item) or
+                         re.search(r'<enclosure[^>]+url=["\']([^"\']+(?:jpg|jpeg|png|webp)[^"\']*)["\']', item))
+                  pub = re.search(r'<pubDate>(.*?)</pubDate>', item)
+                  if title and link:
+                      results.append({
+                          'title': html.unescape(title.group(1).strip()),
+                          'link': html.unescape(link.group(1).strip()),
+                          'img': img.group(1).strip() if img else None,
+                          'pubDate': pub.group(1).strip() if pub else None,
+                      })
+              return results
+
+          FEEDS = [
+              {'id': 'ai',      'label': 'AI / LLMs',          'emoji': '🤖', 'url': 'https://medium.com/feed/tag/artificial-intelligence', 'source': 'Medium'},
+              {'id': 'tech',    'label': 'Tech & Software',     'emoji': '💻', 'url': 'https://news.ycombinator.com/rss', 'source': 'Hacker News'},
+              {'id': 'gaming',  'label': 'Gaming',              'emoji': '🎮', 'url': 'https://feeds.arstechnica.com/arstechnica/gaming', 'source': 'Ars Technica'},
+              {'id': 'astro',   'label': 'Astrophysics',        'emoji': '🔭', 'url': 'https://feeds.arstechnica.com/arstechnica/science', 'source': 'Ars Technica'},
+              {'id': 'product', 'label': 'Product & Startups',  'emoji': '💡', 'url': 'https://techcrunch.com/feed/', 'source': 'TechCrunch'},
+          ]
+
+          data = {'fetchedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'feeds': {}}
+          for feed in FEEDS:
+              print(f"Fetching {feed['id']}...")
+              items = parse_items(fetch(feed['url']))
+              data['feeds'][feed['id']] = {'meta': feed, 'items': items}
+              print(f"  Got {len(items)} items")
+              time.sleep(1)
+
+          with open('data.json', 'w') as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+          print("Wrote data.json")
+          PYEOF
+
+      - name: Commit data.json
+        run: |
+          git config user.name "Claw 🦞"
+          git config user.email "claw@openclaw.ai"
+          git add data.json
+          git diff --staged --quiet || git commit -m "🦞 Update news data $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push

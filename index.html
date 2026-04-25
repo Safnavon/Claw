@@ -241,55 +241,13 @@
 <div class="timestamp" id="timestamp"></div>
 
 <script>
-const FEEDS = [
-  {
-    id: 'ai',
-    label: 'AI / LLMs',
-    emoji: '🤖',
-    cls: 'cat-ai',
-    url: 'https://medium.com/feed/tag/artificial-intelligence',
-    max: 6,
-    source: 'Medium'
-  },
-  {
-    id: 'tech',
-    label: 'Tech & Software',
-    emoji: '💻',
-    cls: 'cat-tech',
-    url: 'https://news.ycombinator.com/rss',
-    max: 6,
-    source: 'Hacker News'
-  },
-  {
-    id: 'gaming',
-    label: 'Gaming',
-    emoji: '🎮',
-    cls: 'cat-gaming',
-    url: 'https://feeds.arstechnica.com/arstechnica/gaming',
-    max: 6,
-    source: 'Ars Technica'
-  },
-  {
-    id: 'astro',
-    label: 'Astrophysics',
-    emoji: '🔭',
-    cls: 'cat-astro',
-    url: 'https://feeds.arstechnica.com/arstechnica/science',
-    max: 6,
-    source: 'Ars Technica'
-  },
-  {
-    id: 'product',
-    label: 'Product & Startups',
-    emoji: '💡',
-    cls: 'cat-product',
-    url: 'https://techcrunch.com/feed/',
-    max: 6,
-    source: 'TechCrunch'
-  }
-];
-
-const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
+const FEED_META = {
+  ai:      { label: 'AI / LLMs',         emoji: '🤖', cls: 'cat-ai',      source: 'Medium' },
+  tech:    { label: 'Tech & Software',    emoji: '💻', cls: 'cat-tech',    source: 'Hacker News' },
+  gaming:  { label: 'Gaming',             emoji: '🎮', cls: 'cat-gaming',  source: 'Ars Technica' },
+  astro:   { label: 'Astrophysics',       emoji: '🔭', cls: 'cat-astro',   source: 'Ars Technica' },
+  product: { label: 'Product & Startups', emoji: '💡', cls: 'cat-product', source: 'TechCrunch' },
+};
 
 function setDate() {
   const now = new Date();
@@ -305,13 +263,15 @@ async function fetchWeather() {
   } catch { document.getElementById('weather').textContent = '🌡 Weather unavailable'; }
 }
 
-function cardHTML(item, feed) {
-  const img = item.thumbnail && item.thumbnail.startsWith('http') ? item.thumbnail : null;
+function cardHTML(item, feedId) {
+  const feed = FEED_META[feedId];
+  const img = item.img && item.img.startsWith('http') ? item.img : null;
   const imgEl = img
-    ? `<img class="card-img" src="${img}" alt="" loading="lazy" onerror="this.style.display='none'">`
+    ? `<img class="card-img" src="${img}" alt="" loading="lazy" onerror="this.parentElement.querySelector('.card-img-placeholder') && (this.style.display='none')">`
     : `<div class="card-img-placeholder">${feed.emoji}</div>`;
-  const title = item.title.replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"');
+  const title = (item.title||'').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/</g,'&lt;');
   const pubDate = item.pubDate ? new Date(item.pubDate).toLocaleDateString('en-IL',{month:'short',day:'numeric'}) : '';
+  const src = item.source || feed.source;
   return `
     <div class="card">
       <a href="${item.link}" target="_blank" rel="noopener">
@@ -320,7 +280,7 @@ function cardHTML(item, feed) {
           <span class="card-cat ${feed.cls}">${feed.emoji} ${feed.label}</span>
           <div class="card-title">${title}</div>
           <div class="card-source">
-            <span>${feed.source}</span>
+            <span>${src}</span>
             ${pubDate ? `<span class="dot"></span><span>${pubDate}</span>` : ''}
           </div>
         </div>
@@ -328,44 +288,30 @@ function cardHTML(item, feed) {
     </div>`;
 }
 
-function showLoading(sectionId) {
-  document.getElementById('section-' + sectionId).innerHTML =
-    `<div class="loading"><div class="spinner"></div><span>Fetching ${sectionId} news…</span></div>`;
-}
-
-async function loadFeed(feed) {
-  showLoading(feed.id);
-  try {
-    const r = await fetch(RSS2JSON + encodeURIComponent(feed.url) + '&count=' + feed.max);
-    const data = await r.json();
-    if (!data.items || !data.items.length) throw new Error('No items');
-    const cards = data.items.slice(0, feed.max).map(i => cardHTML(i, feed)).join('');
-    document.getElementById('section-' + feed.id).innerHTML = cards;
-    return { id: feed.id, cards };
-  } catch(e) {
-    document.getElementById('section-' + feed.id).innerHTML =
-      `<div class="error">⚠️ Failed to load ${feed.label}: ${e.message}</div>`;
-    return { id: feed.id, cards: `<div class="error">⚠️ ${feed.label} unavailable</div>` };
-  }
-}
-
 async function loadAll() {
   document.getElementById('section-all').innerHTML =
-    `<div class="loading"><div class="spinner"></div><span>Loading all feeds…</span></div>`;
+    `<div class="loading"><div class="spinner"></div><span>Loading digest…</span></div>`;
+  try {
+    const r = await fetch('data.json?t=' + Date.now());
+    if (!r.ok) throw new Error('data.json not found — GitHub Action may not have run yet');
+    const data = await r.json();
 
-  const results = await Promise.all(FEEDS.map(loadFeed));
+    let allHTML = '';
+    for (const [feedId, feed] of Object.entries(data.feeds)) {
+      const items = feed.items || [];
+      const cards = items.slice(0, 8).map(i => cardHTML(i, feedId)).join('');
+      document.getElementById('section-' + feedId).innerHTML = cards || `<div class="error">No items for ${feedId}</div>`;
+      items.slice(0, 3).forEach(i => { allHTML += cardHTML(i, feedId); });
+    }
+    document.getElementById('section-all').innerHTML = allHTML || '<div class="error">No content</div>';
 
-  // Build "All" view — 2 cards per category
-  let allHTML = '';
-  for (const feed of FEEDS) {
-    const sec = document.getElementById('section-' + feed.id);
-    const cards = sec.querySelectorAll('.card');
-    cards.forEach((c, i) => { if (i < 3) allHTML += c.outerHTML; });
+    const fetched = data.fetchedAt ? new Date(data.fetchedAt).toLocaleString('en-IL', {timeZone:'Asia/Jerusalem'}) : 'unknown';
+    document.getElementById('timestamp').textContent = 'News fetched: ' + fetched + ' (Israel time)';
+  } catch(e) {
+    const msg = `<div class="error">⚠️ ${e.message}</div>`;
+    document.getElementById('section-all').innerHTML = msg;
+    document.getElementById('timestamp').textContent = 'Failed to load data.json';
   }
-  document.getElementById('section-all').innerHTML = allHTML || '<div class="error">No content loaded</div>';
-
-  document.getElementById('timestamp').textContent =
-    'Last updated: ' + new Date().toLocaleTimeString('en-IL', { timeZone: 'Asia/Jerusalem' }) + ' (Israel time)';
 }
 
 // Tab switching
