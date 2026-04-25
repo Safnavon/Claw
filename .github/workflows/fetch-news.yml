@@ -3,9 +3,11 @@ name: Fetch News
 on:
   schedule:
     - cron: '0 3 * * *'   # 3am UTC = 6am Israel time
-  workflow_dispatch:        # manual trigger
+  workflow_dispatch:
   push:
     branches: [gh-pages]
+    paths-ignore:
+      - 'index.html'       # avoid loop when action commits index.html
 
 permissions:
   contents: write
@@ -19,67 +21,179 @@ jobs:
           ref: gh-pages
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fetch RSS feeds
+      - name: Build index.html with embedded news data
         run: |
           python3 << 'PYEOF'
-          import urllib.request, re, html, json, time
+          import urllib.request, re, html, json, time, sys
 
-          def fetch(url):
+          def fetch_url(url):
               try:
                   req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                   with urllib.request.urlopen(req, timeout=15) as r:
                       return r.read().decode('utf-8', errors='ignore')
               except Exception as e:
-                  print(f"Error fetching {url}: {e}")
+                  print(f"  Error: {e}", file=sys.stderr)
                   return ""
 
           def parse_items(content, max=8):
-              items = re.findall(r'<item>(.*?)</item>', content, re.DOTALL)
               results = []
-              for item in items[:max]:
+              for item in re.findall(r'<item>(.*?)</item>', content, re.DOTALL)[:max]:
                   title = re.search(r'<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>', item)
-                  link = re.search(r'<link>(.*?)</link>', item) or re.search(r'<guid[^>]*>(https?://[^<]+)</guid>', item)
-                  img = (re.search(r'<media:content[^>]+url=["\']([^"\']+)["\']', item) or
-                         re.search(r'<media:thumbnail[^>]+url=["\']([^"\']+)["\']', item) or
-                         re.search(r'<enclosure[^>]+url=["\']([^"\']+(?:jpg|jpeg|png|webp)[^"\']*)["\']', item))
-                  pub = re.search(r'<pubDate>(.*?)</pubDate>', item)
+                  link  = re.search(r'<link>(.*?)</link>', item) or re.search(r'<guid[^>]*>(https?://[^<]+)</guid>', item)
+                  img   = (re.search(r'<media:content[^>]+url=["\']([^"\']+)["\']', item) or
+                           re.search(r'<media:thumbnail[^>]+url=["\']([^"\']+)["\']', item))
+                  pub   = re.search(r'<pubDate>(.*?)</pubDate>', item)
                   if title and link:
                       results.append({
-                          'title': html.unescape(title.group(1).strip()),
-                          'link': html.unescape(link.group(1).strip()),
-                          'img': img.group(1).strip() if img else None,
+                          'title':   html.unescape(title.group(1).strip()),
+                          'link':    html.unescape(link.group(1).strip()),
+                          'img':     img.group(1).strip() if img else None,
                           'pubDate': pub.group(1).strip() if pub else None,
                       })
               return results
 
           FEEDS = [
-              {'id': 'ai',      'label': 'AI / LLMs',          'emoji': '🤖', 'url': 'https://medium.com/feed/tag/artificial-intelligence', 'source': 'Medium'},
-              {'id': 'tech',    'label': 'Tech & Software',     'emoji': '💻', 'url': 'https://news.ycombinator.com/rss', 'source': 'Hacker News'},
-              {'id': 'gaming',  'label': 'Gaming',              'emoji': '🎮', 'url': 'https://feeds.arstechnica.com/arstechnica/gaming', 'source': 'Ars Technica'},
-              {'id': 'astro',   'label': 'Astrophysics',        'emoji': '🔭', 'url': 'https://feeds.arstechnica.com/arstechnica/science', 'source': 'Ars Technica'},
-              {'id': 'product', 'label': 'Product & Startups',  'emoji': '💡', 'url': 'https://techcrunch.com/feed/', 'source': 'TechCrunch'},
+              {'id': 'ai',      'label': 'AI / LLMs',          'emoji': '🤖', 'cls': 'cat-ai',      'url': 'https://medium.com/feed/tag/artificial-intelligence', 'source': 'Medium'},
+              {'id': 'tech',    'label': 'Tech & Software',     'emoji': '💻', 'cls': 'cat-tech',    'url': 'https://news.ycombinator.com/rss',                    'source': 'Hacker News'},
+              {'id': 'gaming',  'label': 'Gaming',              'emoji': '🎮', 'cls': 'cat-gaming',  'url': 'https://feeds.arstechnica.com/arstechnica/gaming',    'source': 'Ars Technica'},
+              {'id': 'astro',   'label': 'Astrophysics',        'emoji': '🔭', 'cls': 'cat-astro',   'url': 'https://feeds.arstechnica.com/arstechnica/science',   'source': 'Ars Technica'},
+              {'id': 'product', 'label': 'Product & Startups',  'emoji': '💡', 'cls': 'cat-product', 'url': 'https://techcrunch.com/feed/',                        'source': 'TechCrunch'},
           ]
 
-          data = {'fetchedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'feeds': {}}
-          for feed in FEEDS:
-              print(f"Fetching {feed['id']}...")
-              items = parse_items(fetch(feed['url']))
-              data['feeds'][feed['id']] = {'meta': feed, 'items': items}
-              print(f"  Got {len(items)} items")
+          feeds_data = {}
+          for f in FEEDS:
+              print(f"Fetching {f['id']}...")
+              items = parse_items(fetch_url(f['url']))
+              print(f"  {len(items)} items")
+              feeds_data[f['id']] = {**f, 'items': items}
               time.sleep(1)
 
-          with open('data.json', 'w') as f:
-              json.dump(data, f, ensure_ascii=False, indent=2)
-          print("Wrote data.json")
+          fetched_at = time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())
+
+          # ── Build cards HTML ──────────────────────────────────────────────
+          def make_card(item, f):
+              img = item.get('img','') or ''
+              img_el = (f'<img class="card-img" src="{img}" alt="" loading="lazy" onerror="this.style.display=\'none\'">'
+                        if img.startswith('http') else
+                        f'<div class="card-img-placeholder">{f["emoji"]}</div>')
+              title = (item.get('title','')
+                       .replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('"','&quot;'))
+              pub = ''
+              if item.get('pubDate'):
+                  try:
+                      from datetime import datetime
+                      for fmt in ('%a, %d %b %Y %H:%M:%S %z','%a, %d %b %Y %H:%M:%S %Z'):
+                          try: pub = datetime.strptime(item['pubDate'], fmt).strftime('%-d %b'); break
+                          except: pass
+                  except: pass
+              dot = f'<span class="dot"></span><span>{pub}</span>' if pub else ''
+              return f'''<div class="card"><a href="{item["link"]}" target="_blank" rel="noopener">
+                {img_el}
+                <div class="card-body">
+                  <span class="card-cat {f['cls']}">{f['emoji']} {f['label']}</span>
+                  <div class="card-title">{title}</div>
+                  <div class="card-source"><span>{f['source']}</span>{dot}</div>
+                </div></a></div>'''
+
+          sections = {}
+          all_cards = []
+          for f in FEEDS:
+              fd = feeds_data[f['id']]
+              cards = [make_card(i, f) for i in fd['items'][:8]]
+              sections[f['id']] = '\n'.join(cards)
+              all_cards += [make_card(i, f) for i in fd['items'][:3]]
+
+          html_out = f'''<!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8"/>
+            <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+            <title>Claw Daily Digest 🦞</title>
+            <style>
+              :root{{--bg:#0f1117;--surface:#1a1d27;--surface2:#21253a;--border:#2a2f45;--accent:#6c8aff;--text:#e2e8f0;--muted:#8892a4;--ai:#34d399;--tech:#60a5fa;--gaming:#f472b6;--astro:#fb923c;--product:#facc15;}}
+              *{{box-sizing:border-box;margin:0;padding:0}}
+              body{{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}}
+              header{{background:linear-gradient(135deg,#1a1d27,#0f1117);border-bottom:1px solid var(--border);padding:20px 28px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)}}
+              header h1{{font-size:1.3rem;font-weight:700;letter-spacing:-.02em}}
+              header .sub{{color:var(--muted);font-size:.82rem;margin-top:2px}}
+              header .emoji{{font-size:1.8rem}}
+              .weather{{margin-left:auto;background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:7px 14px;font-size:.85rem}}
+              .tabs{{display:flex;gap:4px;padding:14px 28px 0;border-bottom:1px solid var(--border);overflow-x:auto}}
+              .tab{{padding:9px 16px;border-radius:8px 8px 0 0;cursor:pointer;font-size:.85rem;font-weight:500;color:var(--muted);border:1px solid transparent;border-bottom:none;white-space:nowrap;transition:color .2s}}
+              .tab:hover{{color:var(--text)}}
+              .tab.active{{background:var(--surface);border-color:var(--border);border-bottom:1px solid var(--surface);color:var(--text);margin-bottom:-1px}}
+              main{{padding:28px;max-width:1400px;margin:0 auto}}
+              .section{{display:none}}
+              .section.active{{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}}
+              .card{{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:transform .2s,border-color .2s,box-shadow .2s;display:flex;flex-direction:column}}
+              .card:hover{{transform:translateY(-3px);border-color:var(--accent);box-shadow:0 8px 28px rgba(108,138,255,.12)}}
+              .card a{{text-decoration:none;color:inherit;display:flex;flex-direction:column;height:100%}}
+              .card-img{{width:100%;height:170px;object-fit:cover;background:var(--surface2)}}
+              .card-img-placeholder{{width:100%;height:170px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:2.5rem}}
+              .card-body{{padding:14px;flex:1;display:flex;flex-direction:column;gap:9px}}
+              .card-cat{{display:inline-flex;align-items:center;gap:5px;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;padding:3px 9px;border-radius:999px;width:fit-content}}
+              .card-title{{font-size:.92rem;font-weight:600;line-height:1.42;color:var(--text)}}
+              .card-source{{font-size:.76rem;color:var(--muted);margin-top:auto;display:flex;align-items:center;gap:5px}}
+              .dot{{width:4px;height:4px;background:var(--muted);border-radius:50%}}
+              .cat-ai{{background:rgba(52,211,153,.15);color:var(--ai)}}
+              .cat-tech{{background:rgba(96,165,250,.15);color:var(--tech)}}
+              .cat-gaming{{background:rgba(244,114,182,.15);color:var(--gaming)}}
+              .cat-astro{{background:rgba(251,146,60,.15);color:var(--astro)}}
+              .cat-product{{background:rgba(250,204,21,.15);color:var(--product)}}
+              .timestamp{{color:var(--muted);font-size:.73rem;padding:14px 28px;text-align:center}}
+              @media(max-width:600px){{header{{padding:14px;flex-wrap:wrap}}.weather{{margin-left:0}}.tabs{{padding:10px 14px 0}}main{{padding:14px}}}}
+            </style>
+          </head>
+          <body>
+          <header>
+            <span class="emoji">🦞</span>
+            <div><h1>Claw Daily Digest</h1><div class="sub" id="dateline"></div></div>
+            <div class="weather" id="weather">📍 Tel Aviv</div>
+          </header>
+          <div class="tabs">
+            <div class="tab active" data-s="all">📰 All</div>
+            <div class="tab" data-s="ai">🤖 AI / LLMs</div>
+            <div class="tab" data-s="tech">💻 Tech</div>
+            <div class="tab" data-s="gaming">🎮 Gaming</div>
+            <div class="tab" data-s="astro">🔭 Astrophysics</div>
+            <div class="tab" data-s="product">💡 Product & Startups</div>
+          </div>
+          <main>
+            <div class="section active" id="s-all">{chr(10).join(all_cards)}</div>
+            <div class="section" id="s-ai">{sections['ai']}</div>
+            <div class="section" id="s-tech">{sections['tech']}</div>
+            <div class="section" id="s-gaming">{sections['gaming']}</div>
+            <div class="section" id="s-astro">{sections['astro']}</div>
+            <div class="section" id="s-product">{sections['product']}</div>
+          </main>
+          <div class="timestamp">News fetched: {fetched_at} · <a href="https://github.com/Safnavon/Claw" style="color:var(--muted)" target="_blank">source</a></div>
+          <script>
+            document.getElementById('dateline').textContent =
+              new Date().toLocaleDateString('en-IL',{{weekday:'long',year:'numeric',month:'long',day:'numeric',timeZone:'Asia/Jerusalem'}});
+            fetch('https://wttr.in/Tel+Aviv?format=%c+%t,+%w+wind')
+              .then(r=>r.text()).then(t=>document.getElementById('weather').textContent='📍 Tel Aviv  '+t.trim()).catch(()=>{{}});
+            document.querySelectorAll('.tab').forEach(tab=>{{
+              tab.addEventListener('click',()=>{{
+                document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+                document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('s-'+tab.dataset.s).classList.add('active');
+              }});
+            }});
+          </script>
+          </body></html>'''
+
+          with open('index.html','w') as f:
+              f.write(html_out)
+          print(f"Built index.html ({len(html_out):,} bytes, {fetched_at})")
           PYEOF
 
-      - name: Commit data.json
+      - name: Commit and push
         run: |
           git config user.name "Claw 🦞"
           git config user.email "claw@openclaw.ai"
-          git add data.json
-          git diff --staged --quiet || (
-            git commit -m "🦞 Update news data $(date -u '+%Y-%m-%d %H:%M UTC')" &&
-            git pull --rebase origin gh-pages &&
-            git push
-          )
+          git add index.html
+          git diff --staged --quiet && echo "No changes" && exit 0
+          git commit -m "🦞 Rebuild digest $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git pull --rebase origin gh-pages
+          git push
