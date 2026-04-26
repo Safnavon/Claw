@@ -35,6 +35,10 @@
     .cat-gaming{background:rgba(244,114,182,.15);color:var(--gaming)}
     .cat-astro{background:rgba(251,146,60,.15);color:var(--astro)}
     .cat-product{background:rgba(250,204,21,.15);color:var(--product)}
+    .card.read{opacity:.38}
+    .card.read:hover{opacity:.7;border-color:var(--border) !important;box-shadow:none !important}
+    .clear-read{cursor:pointer;background:none;border:1px solid var(--border);color:var(--muted);font-size:.75rem;padding:4px 11px;border-radius:999px;transition:color .2s,border-color .2s}
+    .clear-read:hover{color:var(--text);border-color:var(--muted)}
     .timestamp{color:var(--muted);font-size:.73rem;padding:14px 28px;text-align:center}
     @media(max-width:600px){header{padding:14px;flex-wrap:wrap}.weather{margin-left:0}.tabs{padding:10px 14px 0}main{padding:14px}}
   </style>
@@ -440,10 +444,27 @@
         <div class="card-source"><span>TechCrunch</span><span class="dot"></span><span>25 Apr</span></div>
       </div></a></div></div>
 </main>
-<div class="timestamp">News fetched: 2026-04-26 03:57 UTC · <a href="https://github.com/Safnavon/Claw" style="color:var(--muted)" target="_blank">source</a></div>
+<div class="timestamp">News fetched: 2026-04-26 03:57 UTC · <button class="clear-read" id="clearBtn">Clear read</button> · <a href="https://github.com/Safnavon/Claw" style="color:var(--muted)" target="_blank">source</a></div>
 <script>
   document.getElementById('dateline').textContent =
     new Date().toLocaleDateString('en-IL',{weekday:'long',year:'numeric',month:'long',day:'numeric',timeZone:'Asia/Jerusalem'});
+  // Read/unread tracking
+  const RK='claw_read';
+  const getRead=()=>new Set(JSON.parse(localStorage.getItem(RK)||'[]'));
+  const markRead=u=>{const s=getRead();s.add(u);localStorage.setItem(RK,JSON.stringify([...s]));};
+  const applyRead=()=>{
+    const read=getRead();
+    document.querySelectorAll('.card').forEach(card=>{
+      const a=card.querySelector('a');if(!a)return;
+      if(read.has(a.href))card.classList.add('read');
+      a.addEventListener('click',()=>{markRead(a.href);card.classList.add('read');},{once:true});
+    });
+  };
+  applyRead();
+  document.getElementById('clearBtn').addEventListener('click',()=>{
+    localStorage.removeItem(RK);
+    document.querySelectorAll('.card.read').forEach(c=>c.classList.remove('read'));
+  });
   document.querySelectorAll('.tab').forEach(tab=>{
     tab.addEventListener('click',()=>{
       document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
