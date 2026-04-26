@@ -70,6 +70,17 @@ jobs:
 
           fetched_at = time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())
 
+          # Fetch weather server-side (returns plain text here, not HTML)
+          try:
+              weather_req = urllib.request.Request(
+                  'https://wttr.in/Tel+Aviv?format=%c+%t,+%w+wind',
+                  headers={'User-Agent': 'curl/7.68.0', 'Accept': 'text/plain'}
+              )
+              with urllib.request.urlopen(weather_req, timeout=8) as wr:
+                  weather = '📍 Tel Aviv  ' + wr.read().decode('utf-8').strip()
+          except:
+              weather = '📍 Tel Aviv'
+
           # ── Build cards HTML ──────────────────────────────────────────────
           def make_card(item, f):
               img = item.get('img','') or ''
@@ -148,7 +159,7 @@ jobs:
           <header>
             <span class="emoji">🦞</span>
             <div><h1>Claw Daily Digest</h1><div class="sub" id="dateline"></div></div>
-            <div class="weather" id="weather">📍 Tel Aviv</div>
+            <div class="weather" id="weather">{weather}</div>
           </header>
           <div class="tabs">
             <div class="tab active" data-s="all">📰 All</div>
@@ -170,8 +181,6 @@ jobs:
           <script>
             document.getElementById('dateline').textContent =
               new Date().toLocaleDateString('en-IL',{{weekday:'long',year:'numeric',month:'long',day:'numeric',timeZone:'Asia/Jerusalem'}});
-            fetch('https://wttr.in/Tel+Aviv?format=%c+%t,+%w+wind')
-              .then(r=>r.text()).then(t=>document.getElementById('weather').textContent='📍 Tel Aviv  '+t.trim()).catch(()=>{{}});
             document.querySelectorAll('.tab').forEach(tab=>{{
               tab.addEventListener('click',()=>{{
                 document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
